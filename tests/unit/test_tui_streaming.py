@@ -249,13 +249,18 @@ async def test_escape_cancels_inflight_turn(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cancel_before_first_event_persists_no_empty_message(tmp_path):
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
     class StallProvider(ScriptedProvider):
         def stream_turn(self, messages, tools=None, **kwargs):
-            import time as _t
-
-            for i in range(200):
-                _t.sleep(0.2)
-                yield StreamEvent(kind="reasoning", text=f"late{i}")
+            # Tell the test the worker thread has entered the provider, then
+            # hold the first event until cancellation has been requested.
+            started.set()
+            release.wait(timeout=5)
+            yield StreamEvent(kind="reasoning", text="late0")
             yield StreamEvent(kind="done", finish_reason="stop")
 
     db = ConversationDB(str(tmp_path / "db"))
@@ -267,16 +272,26 @@ async def test_cancel_before_first_event_persists_no_empty_message(tmp_path):
             app._turn_active = True
             app.main.set_streaming(True)
             app._active_worker = app._chat_worker_with_tools(user_msg.id)
-            # Yield to the event loop so the worker task is scheduled before
-            # we cancel.  Without this the asyncio task is cancelled before
-            # run_in_executor is awaited and the thread never starts.
-            await pilot.pause(0.02)
-            app.action_cancel_turn_or_dismiss()  # cancel before first event
+
+            # Synchronize on the provider actually running instead of assuming
+            # a fixed sleep is enough for the worker thread to start.
+            for _ in range(100):
+                if started.is_set():
+                    break
+                await pilot.pause(0.01)
+            assert started.is_set(), "provider worker did not start"
+
+            app.action_cancel_turn_or_dismiss()
+            release.set()  # first event arrives only after cancellation
+
             for _ in range(100):
                 await pilot.pause(0.05)
                 if not app._turn_active:
                     break
+
             assert app._turn_active is False
             assert _assistant_messages(app) == []  # no empty message persisted
     finally:
+        # Never leave the worker blocked if an assertion above fails.
+        release.set()
         db.close()
