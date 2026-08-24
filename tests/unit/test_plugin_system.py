@@ -12,12 +12,12 @@ import json
 import tempfile
 from pathlib import Path
 from typing import Any, List
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from ctk.core.models import ConversationTree, Message, MessageContent, MessageRole
-from ctk.core.plugin import BasePlugin, ExporterPlugin, ImporterPlugin, PluginRegistry
+from ctk.core.models import ConversationTree
+from ctk.core.plugin import ExporterPlugin, ImporterPlugin, PluginRegistry
 
 # ==================== Mock Plugins for Testing ====================
 
@@ -377,10 +377,11 @@ class TestPluginValidation:
 class TestPluginSecurity:
     """Test plugin security features"""
 
-    def test_plugin_dir_allowed_validation(self, plugin_registry):
+    def test_plugin_dir_allowed_validation(self, plugin_registry, tmp_path):
         """Given allowed plugin dir, validation should pass"""
-        test_dir = Path("/allowed/plugins")
-        plugin_registry.allowed_plugin_dirs.add(str(test_dir))
+        test_dir = tmp_path / "allowed" / "plugins"
+        test_dir.mkdir(parents=True)
+        plugin_registry.allowed_plugin_dirs.add(str(test_dir.resolve()))
 
         assert plugin_registry._is_plugin_dir_allowed(test_dir) is True
 

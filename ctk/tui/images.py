@@ -126,7 +126,7 @@ def resolve_image_path(
             candidates.append(os.path.join(media_root, media.url))
         candidates.append(media.url)
         for candidate in candidates:
-            expanded = os.path.expanduser(candidate)
+            expanded = os.path.normpath(os.path.expanduser(candidate))
             if os.path.isfile(expanded):
                 return expanded
     return None
@@ -185,9 +185,7 @@ class InlineImage(Vertical):
     }
     """
 
-    def __init__(
-        self, media: MediaContent, media_root: Optional[str] = None
-    ) -> None:
+    def __init__(self, media: MediaContent, media_root: Optional[str] = None) -> None:
         super().__init__(classes="message-image")
         self._media = media
         self._path = resolve_image_path(media, media_root=media_root)
@@ -203,9 +201,7 @@ class InlineImage(Vertical):
                 # Some renderers raise if the file isn't a real image,
                 # or if PIL can't decode it. Log once and fall through
                 # to the caption line below.
-                logger.warning(
-                    "Image render failed for %s: %s", self._path, exc
-                )
+                logger.warning("Image render failed for %s: %s", self._path, exc)
         yield Static(_fallback_label(self._media), classes="image-caption")
 
 
