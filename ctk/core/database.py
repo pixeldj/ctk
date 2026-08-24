@@ -5,13 +5,28 @@ Security note: Schema migrations use file locking to prevent race conditions
 when multiple connections attempt to migrate simultaneously.
 """
 
-import fcntl
 import logging
+import sys
 import time
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    BinaryIO,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 if TYPE_CHECKING:
     from .models import PaginatedResult
@@ -66,6 +81,24 @@ def _escape_like(pattern: str) -> str:
     return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _acquire_file_lock(lock_file: BinaryIO) -> None:
+    """Acquire a non-blocking exclusive file lock."""
+    if sys.platform == "win32":
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _release_file_lock(lock_file: BinaryIO) -> None:
+    """Release an exclusive file lock."""
+    if sys.platform == "win32":
+        lock_file.seek(0)
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 @contextmanager
 def migration_lock(lock_path: Path, timeout: float = 30.0):
     """
@@ -85,17 +118,25 @@ def migration_lock(lock_path: Path, timeout: float = 30.0):
         TimeoutError: If lock cannot be acquired within timeout
     """
     lock_file = None
+    lock_acquired = False
     start_time = time.time()
 
     try:
-        # Create lock file
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_file = open(lock_path, "w")
+
+        # Use a binary file containing at least one byte because Windows
+        # locks byte ranges rather than the whole file.
+        lock_file = open(lock_path, "a+b")
+        lock_file.seek(0, 2)
+        if lock_file.tell() == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
 
         # Try to acquire lock with timeout
         while True:
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _acquire_file_lock(lock_file)
+                lock_acquired = True
                 logger.debug(f"Migration lock acquired: {lock_path}")
                 yield True
                 return
@@ -110,7 +151,8 @@ def migration_lock(lock_path: Path, timeout: float = 30.0):
     finally:
         if lock_file:
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                if lock_acquired:
+                    _release_file_lock(lock_file)
             except Exception as e:
                 logger.warning(f"Error unlocking migration lock: {e}")
             finally:
@@ -298,23 +340,17 @@ class ConversationDB:
                     return True
 
                 # Create FTS5 virtual table for conversations (title + summary)
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
                         conversation_id UNINDEXED,
                         title,
                         summary,
                         tokenize = 'porter unicode61'
                     )
-                """
-                    )
-                )
+                """))
 
                 # Create FTS5 virtual table for messages (content)
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
                         message_id UNINDEXED,
                         conversation_id UNINDEXED,
@@ -322,51 +358,35 @@ class ConversationDB:
                         content,
                         tokenize = 'porter unicode61'
                     )
-                """
-                    )
-                )
+                """))
 
                 # Populate FTS tables with existing data
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     INSERT INTO conversations_fts (conversation_id, title, summary)
                     SELECT id, COALESCE(title, ''), COALESCE(summary, '')
                     FROM conversations
-                """
-                    )
-                )
+                """))
 
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     INSERT INTO messages_fts (message_id, conversation_id, role, content)
                     SELECT id, conversation_id, COALESCE(role, ''),
                            COALESCE(json_extract(content_json, '$.text'), '')
                     FROM messages
-                """
-                    )
-                )
+                """))
 
                 # Create triggers to keep FTS in sync
                 # Conversations insert trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS conversations_fts_insert
                     AFTER INSERT ON conversations
                     BEGIN
                         INSERT INTO conversations_fts (conversation_id, title, summary)
                         VALUES (NEW.id, COALESCE(NEW.title, ''), COALESCE(NEW.summary, ''));
                     END
-                """
-                    )
-                )
+                """))
 
                 # Conversations update trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS conversations_fts_update
                     AFTER UPDATE ON conversations
                     BEGIN
@@ -375,27 +395,19 @@ class ConversationDB:
                             summary = COALESCE(NEW.summary, '')
                         WHERE conversation_id = NEW.id;
                     END
-                """
-                    )
-                )
+                """))
 
                 # Conversations delete trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS conversations_fts_delete
                     AFTER DELETE ON conversations
                     BEGIN
                         DELETE FROM conversations_fts WHERE conversation_id = OLD.id;
                     END
-                """
-                    )
-                )
+                """))
 
                 # Messages insert trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS messages_fts_insert
                     AFTER INSERT ON messages
                     BEGIN
@@ -403,14 +415,10 @@ class ConversationDB:
                         VALUES (NEW.id, NEW.conversation_id, COALESCE(NEW.role, ''),
                                 COALESCE(json_extract(NEW.content_json, '$.text'), ''));
                     END
-                """
-                    )
-                )
+                """))
 
                 # Messages update trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS messages_fts_update
                     AFTER UPDATE ON messages
                     BEGIN
@@ -419,22 +427,16 @@ class ConversationDB:
                             content = COALESCE(json_extract(NEW.content_json, '$.text'), '')
                         WHERE message_id = NEW.id;
                     END
-                """
-                    )
-                )
+                """))
 
                 # Messages delete trigger
-                conn.execute(
-                    text(
-                        """
+                conn.execute(text("""
                     CREATE TRIGGER IF NOT EXISTS messages_fts_delete
                     AFTER DELETE ON messages
                     BEGIN
                         DELETE FROM messages_fts WHERE message_id = OLD.id;
                     END
-                """
-                    )
-                )
+                """))
 
                 conn.commit()
                 logger.info("FTS5 full-text search tables and triggers created")
@@ -543,15 +545,13 @@ class ConversationDB:
                     # Search conversation titles (higher weight)
                     try:
                         result = conn.execute(
-                            text(
-                                """
+                            text("""
                             SELECT conversation_id, bm25(conversations_fts) as rank
                             FROM conversations_fts
                             WHERE conversations_fts MATCH :query
                             ORDER BY rank
                             LIMIT :limit
-                        """
-                            ),
+                        """),
                             {"query": fts_query, "limit": limit},
                         )
 
@@ -569,14 +569,12 @@ class ConversationDB:
                     # Search message content - use subquery since bm25 can't be used with GROUP BY
                     try:
                         result = conn.execute(
-                            text(
-                                """
+                            text("""
                             SELECT DISTINCT conversation_id
                             FROM messages_fts
                             WHERE messages_fts MATCH :query
                             LIMIT :limit
-                        """
-                            ),
+                        """),
                             {"query": fts_query, "limit": limit},
                         )
 
@@ -2239,15 +2237,13 @@ class ConversationDB:
                     date_format = "date(created_at)"
 
                 results = session.execute(
-                    text(
-                        f"""
+                    text(f"""
                         SELECT {date_format} as period, COUNT(id) as count
                         FROM conversations
                         GROUP BY {date_format}
                         ORDER BY {date_format} DESC
                         LIMIT :limit
-                    """
-                    ),
+                    """),
                     {"limit": limit},
                 ).fetchall()
             else:
