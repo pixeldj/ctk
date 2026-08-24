@@ -491,7 +491,8 @@ class PluginRegistry:
                         ):
 
                             try:
-                                plugin_instance = obj()
+                                plugin_class = cast(Type[BasePlugin], obj)
+                                plugin_instance = plugin_class()
                                 plugin_name = plugin_instance.name or module_name
 
                                 # Security: Validate plugin instance
