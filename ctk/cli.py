@@ -287,9 +287,9 @@ def cmd_import(args):
             # If saving to database, pass media_dir for image storage
             if args.db:
                 try:
-                    db_temp = ConversationDB(args.db)
-                    if hasattr(db_temp, "media_dir"):
-                        import_kwargs["media_dir"] = str(db_temp.media_dir)
+                    with ConversationDB(args.db) as db_temp:
+                        if hasattr(db_temp, "media_dir"):
+                            import_kwargs["media_dir"] = str(db_temp.media_dir)
                 except (ValueError, PermissionError, OSError) as e:
                     _err(f"Error: Cannot open database: {e}")
                     return 1
@@ -502,76 +502,76 @@ def cmd_query(args):
         _err("Error: Database path required (-d)")
         return 1
 
-    db = ConversationDB(args.db)
+    with ConversationDB(args.db) as db:
 
-    # Note: the legacy ``--view`` flag (curated YAML collections) was
-    # removed in 2.12.0 alongside the rest of the views machinery.
-    # Tags + filter flags below cover the same use case more flexibly.
+        # Note: the legacy ``--view`` flag (curated YAML collections) was
+        # removed in 2.12.0 alongside the rest of the views machinery.
+        # Tags + filter flags below cover the same use case more flexibly.
 
-    # Parse date filters
-    def parse_date(date_str):
-        if not date_str:
-            return None
-        # Handle relative dates like "7d", "1w", "1m"
-        match = re.match(r"^(\d+)([dwmy])$", date_str.lower())
-        if match:
-            num, unit = int(match.group(1)), match.group(2)
-            if unit == "d":
-                return datetime.now() - timedelta(days=num)
-            elif unit == "w":
-                return datetime.now() - timedelta(weeks=num)
-            elif unit == "m":
-                return datetime.now() - timedelta(days=num * 30)
-            elif unit == "y":
-                return datetime.now() - timedelta(days=num * 365)
-        # Try ISO format
-        try:
-            return datetime.fromisoformat(date_str)
-        except ValueError:
-            print(f"Warning: Could not parse date '{date_str}'")
-            return None
+        # Parse date filters
+        def parse_date(date_str):
+            if not date_str:
+                return None
+            # Handle relative dates like "7d", "1w", "1m"
+            match = re.match(r"^(\d+)([dwmy])$", date_str.lower())
+            if match:
+                num, unit = int(match.group(1)), match.group(2)
+                if unit == "d":
+                    return datetime.now() - timedelta(days=num)
+                elif unit == "w":
+                    return datetime.now() - timedelta(weeks=num)
+                elif unit == "m":
+                    return datetime.now() - timedelta(days=num * 30)
+                elif unit == "y":
+                    return datetime.now() - timedelta(days=num * 365)
+            # Try ISO format
+            try:
+                return datetime.fromisoformat(date_str)
+            except ValueError:
+                print(f"Warning: Could not parse date '{date_str}'")
+                return None
 
-    date_from = parse_date(args.since)
-    date_to = parse_date(args.until)
+        date_from = parse_date(args.since)
+        date_to = parse_date(args.until)
 
-    # Collect tags from multiple --tag flags
-    tags = ",".join(args.tag) if args.tag else None
+        # Collect tags from multiple --tag flags
+        tags = ",".join(args.tag) if args.tag else None
 
-    # Use the search helper
-    from .core.db_helpers import search_conversations_helper
+        # Use the search helper
+        from .core.db_helpers import search_conversations_helper
 
-    # Cursor pagination: --cursor flag (empty string = first page)
-    cursor = getattr(args, "cursor", None)
-    page_size = getattr(args, "page_size", 50)
+        # Cursor pagination: --cursor flag (empty string = first page)
+        cursor = getattr(args, "cursor", None)
+        page_size = getattr(args, "page_size", 50)
 
-    return search_conversations_helper(
-        db=db,
-        query=args.text,
-        limit=args.limit or 50,
-        offset=0,
-        title_only=False,
-        content_only=False,
-        date_from=date_from,
-        date_to=date_to,
-        source=args.source,
-        project=args.project,
-        model=args.model,
-        tags=tags,
-        min_messages=None,
-        max_messages=None,
-        has_branches=False,
-        archived=args.archived,
-        starred=args.starred,
-        pinned=args.pinned,
-        include_archived=(
-            args.include_archived if hasattr(args, "include_archived") else False
-        ),
-        order_by=args.order_by or "updated_at",
-        ascending=args.asc if hasattr(args, "asc") else False,
-        output_format=args.format,
-        cursor=cursor,
-        page_size=page_size,
-    )
+        return search_conversations_helper(
+            db=db,
+            query=args.text,
+            limit=args.limit or 50,
+            offset=0,
+            title_only=False,
+            content_only=False,
+            date_from=date_from,
+            date_to=date_to,
+            source=args.source,
+            project=args.project,
+            model=args.model,
+            tags=tags,
+            min_messages=None,
+            max_messages=None,
+            has_branches=False,
+            archived=args.archived,
+            starred=args.starred,
+            pinned=args.pinned,
+            include_archived=(
+                args.include_archived if hasattr(args, "include_archived") else False
+            ),
+            order_by=args.order_by or "updated_at",
+            ascending=args.asc if hasattr(args, "asc") else False,
+            output_format=args.format,
+            cursor=cursor,
+            page_size=page_size,
+        )
 
 
 def cmd_search(args):
@@ -584,40 +584,40 @@ def cmd_search(args):
 
     from .core.db_helpers import search_conversations_helper
 
-    db = ConversationDB(args.db)
+    with ConversationDB(args.db) as db:
 
-    # Parse date arguments
-    date_from = None
-    date_to = None
-    if args.date_from:
-        date_from = datetime.fromisoformat(args.date_from)
-    if args.date_to:
-        date_to = datetime.fromisoformat(args.date_to)
+        # Parse date arguments
+        date_from = None
+        date_to = None
+        if args.date_from:
+            date_from = datetime.fromisoformat(args.date_from)
+        if args.date_to:
+            date_to = datetime.fromisoformat(args.date_to)
 
-    return search_conversations_helper(
-        db=db,
-        query=args.query,
-        limit=args.limit,
-        offset=args.offset,
-        title_only=args.title_only,
-        content_only=args.content_only,
-        date_from=date_from,
-        date_to=date_to,
-        source=args.source,
-        project=args.project,
-        model=args.model,
-        tags=args.tags,
-        min_messages=args.min_messages,
-        max_messages=args.max_messages,
-        has_branches=args.has_branches,
-        archived=getattr(args, "archived", False),
-        starred=getattr(args, "starred", False),
-        pinned=getattr(args, "pinned", False),
-        include_archived=getattr(args, "include_archived", False),
-        order_by=args.order_by,
-        ascending=args.ascending,
-        output_format=args.format,
-    )
+        return search_conversations_helper(
+            db=db,
+            query=args.query,
+            limit=args.limit,
+            offset=args.offset,
+            title_only=args.title_only,
+            content_only=args.content_only,
+            date_from=date_from,
+            date_to=date_to,
+            source=args.source,
+            project=args.project,
+            model=args.model,
+            tags=args.tags,
+            min_messages=args.min_messages,
+            max_messages=args.max_messages,
+            has_branches=args.has_branches,
+            archived=getattr(args, "archived", False),
+            starred=getattr(args, "starred", False),
+            pinned=getattr(args, "pinned", False),
+            include_archived=getattr(args, "include_archived", False),
+            order_by=args.order_by,
+            ascending=args.ascending,
+            output_format=args.format,
+        )
 
 
 def cmd_stats(args):

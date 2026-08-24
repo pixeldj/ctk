@@ -150,14 +150,15 @@ class TestCLIIntegration:
 
     def test_export_command(self, temp_db):
         """Test export command functionality"""
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as output_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "output.jsonl")
             try:
                 with patch(
                     "sys.argv",
                     [
                         "ctk",
                         "export",
-                        output_file.name,
+                        output_file,
                         "--db",
                         temp_db,
                         "--format",
@@ -169,11 +170,11 @@ class TestCLIIntegration:
                 assert result == 0
 
                 # Verify export file was created
-                assert os.path.exists(output_file.name)
-                assert os.path.getsize(output_file.name) > 0
+                assert os.path.exists(output_file)
+                assert os.path.getsize(output_file) > 0
 
                 # Verify content is valid JSONL
-                with open(output_file.name, "r") as f:
+                with open(output_file, "r") as f:
                     content = f.read().strip()
                     assert content  # Should have content
 
@@ -182,8 +183,8 @@ class TestCLIIntegration:
                         if line.strip():
                             json.loads(line)  # Should not raise exception
             finally:
-                if os.path.exists(output_file.name):
-                    os.unlink(output_file.name)
+                if os.path.exists(output_file):
+                    os.unlink(output_file)
 
     def test_query_command(self, temp_db):
         """Test query command functionality (replaces old 'list')"""
@@ -247,15 +248,18 @@ class TestCLIIntegration:
 
     def test_export_invalid_db(self):
         """Test export with invalid database"""
-        with tempfile.NamedTemporaryFile(suffix=".jsonl") as output_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "output.jsonl")
+            invalid_db = os.path.join(temp_dir, "nonexistent", "database.db")
+
             with patch(
                 "sys.argv",
                 [
                     "ctk",
                     "export",
-                    output_file.name,
+                    output_file,
                     "--db",
-                    "/nonexistent/database.db",
+                    invalid_db,
                     "--format",
                     "jsonl",
                 ],
@@ -293,7 +297,8 @@ class TestCLIIntegration:
 
     def test_import_conversion_only(self, sample_jsonl_file):
         """Test import for format conversion without database storage"""
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as output_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "output.json")
             try:
                 with patch(
                     "sys.argv",
@@ -302,7 +307,7 @@ class TestCLIIntegration:
                         "import",
                         sample_jsonl_file,
                         "--output",
-                        output_file.name,
+                        output_file,
                         "--output-format",
                         "jsonl",
                     ],
@@ -310,22 +315,23 @@ class TestCLIIntegration:
                     result = main()
 
                 assert result == 0
-                assert os.path.exists(output_file.name)
-                assert os.path.getsize(output_file.name) > 0
+                assert os.path.exists(output_file)
+                assert os.path.getsize(output_file) > 0
             finally:
-                if os.path.exists(output_file.name):
-                    os.unlink(output_file.name)
+                if os.path.exists(output_file):
+                    os.unlink(output_file)
 
     def test_export_with_filters(self, temp_db):
         """Test export command with various filters"""
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as output_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_file = os.path.join(temp_dir, "output.jsonl")
             try:
                 with patch(
                     "sys.argv",
                     [
                         "ctk",
                         "export",
-                        output_file.name,
+                        output_file,
                         "--db",
                         temp_db,
                         "--format",
@@ -339,10 +345,10 @@ class TestCLIIntegration:
                     result = main()
 
                 assert result == 0
-                assert os.path.exists(output_file.name)
+                assert os.path.exists(output_file)
             finally:
-                if os.path.exists(output_file.name):
-                    os.unlink(output_file.name)
+                if os.path.exists(output_file):
+                    os.unlink(output_file)
 
 
 class TestCLIErrorHandling:
@@ -366,6 +372,10 @@ class TestCLIErrorHandling:
             if os.path.exists(invalid_file):
                 os.unlink(invalid_file)
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="requires POSIX filesystem permission semantics",
+    )
     def test_database_permission_error(self, sample_jsonl_file):
         """Test handling of database permission errors"""
         # Try to use a path that would cause permission error
@@ -379,6 +389,10 @@ class TestCLIErrorHandling:
         # Should handle error gracefully
         assert result != 0
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="requires POSIX filesystem permission semantics",
+    )
     def test_export_permission_error(self, temp_db):
         """Test handling of export file permission errors"""
         # Create a read-only directory to guarantee PermissionError
@@ -424,7 +438,8 @@ class TestCLIWorkflows:
         import shutil
 
         db_dir = tempfile.mkdtemp(suffix="_ctk_db")
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as export_file:
+        with tempfile.TemporaryDirectory() as export_dir:
+            export_file = os.path.join(export_dir, "export.jsonl")
 
             try:
                 # Step 1: Import
@@ -454,7 +469,7 @@ class TestCLIWorkflows:
                     [
                         "ctk",
                         "export",
-                        export_file.name,
+                        export_file,
                         "--db",
                         db_dir,
                         "--format",
@@ -465,12 +480,12 @@ class TestCLIWorkflows:
                     assert result == 0
 
                 # Step 4: Verify export
-                assert os.path.exists(export_file.name)
-                assert os.path.getsize(export_file.name) > 0
+                assert os.path.exists(export_file)
+                assert os.path.getsize(export_file) > 0
 
             finally:
-                if os.path.exists(export_file.name):
-                    os.unlink(export_file.name)
+                if os.path.exists(export_file):
+                    os.unlink(export_file)
                 if os.path.exists(db_dir):
                     shutil.rmtree(db_dir)
 

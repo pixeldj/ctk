@@ -68,6 +68,14 @@ class CSVExporter(ExporterPlugin):
 
         return output.getvalue()
 
+    def export_to_file(
+        self, conversations: List[ConversationTree], file_path: str, **kwargs
+    ) -> None:
+        """Export CSV/TSV without platform newline translation."""
+        data = self.export_data(conversations, **kwargs)
+        with open(file_path, "w", encoding="utf-8", newline="") as f:
+            f.write(data)
+
     def _export_conversations(self, writer, conversations):
         """Export conversation-level summary rows."""
         headers = [
@@ -136,7 +144,6 @@ class CSVExporter(ExporterPlugin):
                         msg.parent_id or "",
                     ]
                 )
-
 
 
 # Register the exporter

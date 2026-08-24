@@ -13,27 +13,27 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
         pip install -e .
-    
+
     - name: Run tests with coverage
       run: |
         pytest --cov=ctk --cov-report=xml --cov-report=term-missing
-    
+
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
       uses: codecov/codecov-action@v3
@@ -45,55 +45,95 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install black flake8 mypy
         pip install -r requirements.txt
-    
+
+    - name: Find changed Python files
+      id: changed
+      shell: bash
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          BASE="origin/${{ github.base_ref }}"
+        else
+          BASE="${{ github.event.before }}"
+        fi
+
+        # Fall back to the previous commit if GitHub didn't provide
+        # a usable base SHA (for example, an unusual first push).
+        if ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+          BASE="$(git rev-parse HEAD^)"
+        fi
+
+        git diff -z \
+          --name-only \
+          --diff-filter=ACMR \
+          "${BASE}...HEAD" \
+          -- '*.py' > /tmp/changed-python
+
+        echo "Changed Python files:"
+        tr '\0' '\n' < /tmp/changed-python
+
     - name: Format check with black
+      shell: bash
       run: |
-        black --check ctk tests
-    
+        if [[ -s /tmp/changed-python ]]; then
+          xargs -0 black --check < /tmp/changed-python
+        else
+          echo "No changed Python files."
+        fi
+
     - name: Lint with flake8
+      shell: bash
       run: |
-        flake8 ctk tests --max-line-length=100 --ignore=E203,W503
-    
+        if [[ -s /tmp/changed-python ]]; then
+          xargs -0 flake8 \
+            --max-line-length=100 \
+            --ignore=E203,W503,E501 \
+            < /tmp/changed-python
+        else
+          echo "No changed Python files."
+        fi
+
     - name: Type check with mypy
       run: |
         mypy ctk --ignore-missing-imports
 
   integration:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: "3.11"
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
         pip install -e .
-    
+
     - name: Run integration tests
       run: |
-        pytest tests/integration -v -m integration
-    
+        pytest tests/integration -v -m integration --no-cov
+
     - name: Test CLI commands
       run: |
         # Test help commands

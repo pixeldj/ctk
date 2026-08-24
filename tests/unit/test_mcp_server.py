@@ -22,9 +22,29 @@ import os
 import pytest
 import mcp.types as types
 
-# Set test database path before importing anything that triggers get_db
-TEST_DB_PATH = "/home/spinoza/github/beta/ctk/dev/openai-db"
-os.environ["CTK_DATABASE_PATH"] = TEST_DB_PATH
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_database(tmp_path_factory):
+    """Give MCP tests their own temporary CTK database."""
+    from ctk.interfaces.mcp import server as mcp_server_impl
+
+    db_path = tmp_path_factory.mktemp("ctk-mcp-db")
+
+    previous = os.environ.get("CTK_DATABASE_PATH")
+    os.environ["CTK_DATABASE_PATH"] = str(db_path)
+
+    # get_db() caches its ConversationDB globally.
+    mcp_server_impl._db = None
+
+    yield db_path
+
+    mcp_server_impl._db = None
+
+    if previous is None:
+        os.environ.pop("CTK_DATABASE_PATH", None)
+    else:
+        os.environ["CTK_DATABASE_PATH"] = previous
+
 
 pytestmark = pytest.mark.unit
 
@@ -42,7 +62,7 @@ def event_loop():
 
 
 @pytest.fixture(scope="module")
-def db():
+def db(isolated_database):
     from ctk.mcp_server import get_db
 
     return get_db()
@@ -203,9 +223,7 @@ class TestHandleTool:
     def test_unknown_tool_returns_unknown_message(self, event_loop, db):
         from ctk.interfaces.mcp.projection import handle_tool
 
-        result = event_loop.run_until_complete(
-            handle_tool("star_conversation", {}, db)
-        )
+        result = event_loop.run_until_complete(handle_tool("star_conversation", {}, db))
         assert len(result) == 1
         assert result[0].text.startswith("Unknown tool:")
 
@@ -240,7 +258,9 @@ class TestHandleTool:
         from ctk.interfaces.mcp.projection import handle_tool
 
         result = event_loop.run_until_complete(
-            handle_tool("execute_sql", {"sql": "SELECT COUNT(*) as cnt FROM conversations"}, db)
+            handle_tool(
+                "execute_sql", {"sql": "SELECT COUNT(*) as cnt FROM conversations"}, db
+            )
         )
         assert len(result) == 1
         assert "cnt" in result[0].text
@@ -274,7 +294,9 @@ class TestHandleTool:
         assert isinstance(result[0], types.TextContent)
         assert "Unknown tool" not in result[0].text
 
-    def test_update_conversation_alias_id_param(self, event_loop, db, first_conv_prefix):
+    def test_update_conversation_alias_id_param(
+        self, event_loop, db, first_conv_prefix
+    ):
         """update_conversation with legacy 'id' alias and no changes returns 'No changes'."""
         if first_conv_prefix is None:
             pytest.skip("No conversations in test DB")
@@ -334,5 +356,7 @@ class TestMCPServerIntegration:
         """star_conversation is a builtin tool but NOT in the MCP curated set."""
         from ctk.mcp_server import handle_call_tool
 
-        result = event_loop.run_until_complete(handle_call_tool("star_conversation", {}))
+        result = event_loop.run_until_complete(
+            handle_call_tool("star_conversation", {})
+        )
         assert "Unknown tool" in result[0].text
