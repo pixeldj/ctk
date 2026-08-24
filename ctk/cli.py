@@ -287,9 +287,9 @@ def cmd_import(args):
             # If saving to database, pass media_dir for image storage
             if args.db:
                 try:
-                    db_temp = ConversationDB(args.db)
-                    if hasattr(db_temp, "media_dir"):
-                        import_kwargs["media_dir"] = str(db_temp.media_dir)
+                    with ConversationDB(args.db) as db_temp:
+                        if hasattr(db_temp, "media_dir"):
+                            import_kwargs["media_dir"] = str(db_temp.media_dir)
                 except (ValueError, PermissionError, OSError) as e:
                     _err(f"Error: Cannot open database: {e}")
                     return 1
@@ -584,40 +584,40 @@ def cmd_search(args):
 
     from .core.db_helpers import search_conversations_helper
 
-    db = ConversationDB(args.db)
+    with ConversationDB(args.db) as db:
 
-    # Parse date arguments
-    date_from = None
-    date_to = None
-    if args.date_from:
-        date_from = datetime.fromisoformat(args.date_from)
-    if args.date_to:
-        date_to = datetime.fromisoformat(args.date_to)
+        # Parse date arguments
+        date_from = None
+        date_to = None
+        if args.date_from:
+            date_from = datetime.fromisoformat(args.date_from)
+        if args.date_to:
+            date_to = datetime.fromisoformat(args.date_to)
 
-    return search_conversations_helper(
-        db=db,
-        query=args.query,
-        limit=args.limit,
-        offset=args.offset,
-        title_only=args.title_only,
-        content_only=args.content_only,
-        date_from=date_from,
-        date_to=date_to,
-        source=args.source,
-        project=args.project,
-        model=args.model,
-        tags=args.tags,
-        min_messages=args.min_messages,
-        max_messages=args.max_messages,
-        has_branches=args.has_branches,
-        archived=getattr(args, "archived", False),
-        starred=getattr(args, "starred", False),
-        pinned=getattr(args, "pinned", False),
-        include_archived=getattr(args, "include_archived", False),
-        order_by=args.order_by,
-        ascending=args.ascending,
-        output_format=args.format,
-    )
+        return search_conversations_helper(
+            db=db,
+            query=args.query,
+            limit=args.limit,
+            offset=args.offset,
+            title_only=args.title_only,
+            content_only=args.content_only,
+            date_from=date_from,
+            date_to=date_to,
+            source=args.source,
+            project=args.project,
+            model=args.model,
+            tags=args.tags,
+            min_messages=args.min_messages,
+            max_messages=args.max_messages,
+            has_branches=args.has_branches,
+            archived=getattr(args, "archived", False),
+            starred=getattr(args, "starred", False),
+            pinned=getattr(args, "pinned", False),
+            include_archived=getattr(args, "include_archived", False),
+            order_by=args.order_by,
+            ascending=args.ascending,
+            output_format=args.format,
+        )
 
 
 def cmd_stats(args):
