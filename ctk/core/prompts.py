@@ -40,7 +40,11 @@ Available CTK Operations:
                     if cmd_name in ["chat", "ask"]:
                         continue
 
-                    prompt += f"\n**{cmd_name}**: {cmd_parser.description or cmd_parser.format_help().split('\\n')[0]}\n"
+                    description = (
+                        cmd_parser.description
+                        or cmd_parser.format_help().partition("\n")[0]
+                    )
+                    prompt += f"\n**{cmd_name}**: {description}\n"
 
                     # Add key arguments
                     args_info = []
@@ -137,23 +141,12 @@ def get_ctk_system_prompt(db: "ConversationDB", current_path: str = "/") -> str:
         # Get counts for starred, pinned, archived
         starred_count = db.count_conversations(starred=True)
         pinned_count = db.count_conversations(pinned=True)
-        archived_count = db.count_conversations(archived=True)
-
-        # Get top sources
-        sources = stats.get("by_source", {})
-        source_summary = (
-            ", ".join(f"{k}: {v}" for k, v in list(sources.items())[:3])
-            if sources
-            else "none"
-        )
 
     except Exception:
         total_convs = 0
         total_msgs = 0
         starred_count = 0
         pinned_count = 0
-        archived_count = 0
-        source_summary = "unknown"
 
     prompt = f"""You help users explore their conversation history.
 
@@ -191,24 +184,9 @@ def get_ctk_system_prompt_no_tools(
         total_convs = stats.get("total_conversations", 0)
         total_msgs = stats.get("total_messages", 0)
 
-        # Get counts for starred, pinned, archived
-        starred_count = db.count_conversations(starred=True)
-        pinned_count = db.count_conversations(pinned=True)
-
-        # Get top sources
-        sources = stats.get("by_source", {})
-        source_summary = (
-            ", ".join(f"{k}: {v}" for k, v in list(sources.items())[:3])
-            if sources
-            else "none"
-        )
-
     except Exception:
         total_convs = 0
         total_msgs = 0
-        starred_count = 0
-        pinned_count = 0
-        source_summary = "unknown"
 
     prompt = f"""You help users explore their conversation history in CTK.
 
