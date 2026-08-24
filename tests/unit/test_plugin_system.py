@@ -391,14 +391,14 @@ class TestPluginSecurity:
 
         assert plugin_registry._is_plugin_dir_allowed(test_dir) is False
 
-    def test_add_trusted_plugin_dir(self, plugin_registry):
+    def test_add_trusted_plugin_dir(self, plugin_registry, tmp_path):
         """Given new trusted dir, should be added to allowed list"""
-        test_dir = "/new/trusted/dir"
-        plugin_registry.add_trusted_plugin_dir(test_dir)
+        test_dir = tmp_path / "new" / "trusted" / "dir"
+        test_dir.mkdir(parents=True)
 
-        assert any(
-            test_dir in allowed for allowed in plugin_registry.allowed_plugin_dirs
-        )
+        plugin_registry.add_trusted_plugin_dir(str(test_dir))
+
+        assert plugin_registry._is_plugin_dir_allowed(test_dir) is True
 
     def test_validate_plugin_file_size_limit(self, plugin_registry, temp_plugin_dir):
         """Given oversized plugin file, validation should fail"""

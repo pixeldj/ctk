@@ -12,6 +12,7 @@ import base64
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -101,9 +102,9 @@ class TestResolveImagePath:
         monkeypatch.chdir(tmp_path)
         m = MediaContent(type=ContentType.IMAGE, url="media/x.png")
         # No media_root passed: cwd is tried as a fallback.
-        assert resolve_image_path(m) == "media/x.png" or resolve_image_path(m) == str(
-            img
-        )
+        resolved = resolve_image_path(m)
+        assert resolved is not None
+        assert Path(resolved).resolve() == img.resolve()
 
     def test_base64_data_writes_temp_file(self):
         from ctk.tui.images import _TEMP_PATHS, resolve_image_path
