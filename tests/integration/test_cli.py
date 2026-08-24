@@ -372,6 +372,10 @@ class TestCLIErrorHandling:
             if os.path.exists(invalid_file):
                 os.unlink(invalid_file)
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="requires POSIX filesystem permission semantics",
+    )
     def test_database_permission_error(self, sample_jsonl_file):
         """Test handling of database permission errors"""
         # Try to use a path that would cause permission error
@@ -385,6 +389,10 @@ class TestCLIErrorHandling:
         # Should handle error gracefully
         assert result != 0
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="requires POSIX filesystem permission semantics",
+    )
     def test_export_permission_error(self, temp_db):
         """Test handling of export file permission errors"""
         # Create a read-only directory to guarantee PermissionError
